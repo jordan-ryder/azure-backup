@@ -1,7 +1,8 @@
 # onedrive-sync
 
-Scripts and notebooks for pulling data from OneDrive, the BLS, USDA Quickstats,
-and NewsAPI into a local Postgres database.
+Not in a completely working state. I used this to pull all my files off of onedrive and upload to azure cold storage. 
+
+Went from Onedrive cost of 15.00 to 0.01 per month, a savings of 99.93%!
 
 ## Setup
 
@@ -15,7 +16,6 @@ cp .env.example .env
 
 - `Api_Helpers.py` — `OneDriveConnector` (MSAL auth + Graph API) and `DbConnector` (Postgres).
 - `onedrive.ipynb`, `onedrive upload.ipynb` — sync notebooks.
-- `athena.ipynb` — USDA / NewsAPI / BLS ingestion into the `athena` database.
 - `.env.example` — required environment variables.
 
 ## Configuration
