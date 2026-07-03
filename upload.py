@@ -43,8 +43,10 @@ load_dotenv(Path(__file__).parent / '.env')
 
 HOME = Path.home()
 CHUNK_SIZE = 4 * 1024 * 1024
-# Same exclusions as the notebook, plus node_modules.
-SKIP_DIR_NAMES = ('NetBeans', 'actions-runner', 'node_modules')
+# Same exclusions as the notebook, plus node_modules (substring match).
+SKIP_DIR_SUBSTRINGS = ('NetBeans', 'actions-runner', 'node_modules')
+# Dev junk skipped by exact directory name (dot-prefixed dirs are always skipped).
+SKIP_DIR_NAMES = ('__pycache__', 'venv', 'virtualenv')
 SKIP_PATH_PARTS = ('Documents/Games/',)
 
 PG_CONNINFO = (
@@ -86,18 +88,21 @@ def blob_name_for(filepath: Path) -> str:
     return full[len(home):] if full.startswith(home + '/') else full
 
 
-def iter_files(root: Path):
+def iter_files(root: Path, extra_skips: tuple[str, ...] = ()):
     if root.is_file():
         yield root
         return
     for entry in sorted(os.scandir(root), key=lambda e: e.name):
         p = Path(entry.path)
         if entry.is_dir(follow_symlinks=False):
-            if entry.name.startswith('.') or any(n in entry.name for n in SKIP_DIR_NAMES):
+            if (entry.name.startswith('.')
+                    or entry.name in SKIP_DIR_NAMES
+                    or entry.name in extra_skips
+                    or any(n in entry.name for n in SKIP_DIR_SUBSTRINGS)):
                 continue
             if any(part in f'{p}/' for part in SKIP_PATH_PARTS):
                 continue
-            yield from iter_files(p)
+            yield from iter_files(p, extra_skips)
         elif entry.is_file(follow_symlinks=False):
             yield p
 
@@ -129,6 +134,8 @@ def main() -> int:
                         help='skip files larger than this (default: 800)')
     parser.add_argument('--dry-run', action='store_true',
                         help='list what would upload without touching Azure or the DB')
+    parser.add_argument('--skip', action='append', default=[], metavar='NAME',
+                        help='additional directory name to skip (exact match, repeatable)')
     args = parser.parse_args()
 
     container_name = os.environ['AZURE_STORAGE_CONTAINER']
@@ -152,7 +159,7 @@ def main() -> int:
             print(f'skipping missing path: {root}', file=sys.stderr)
             continue
         print(f'\n== {root}')
-        for filepath in iter_files(root.expanduser().resolve()):
+        for filepath in iter_files(root.expanduser().resolve(), tuple(args.skip)):
             blob_name = blob_name_for(filepath)
             modified = filepath.stat().st_mtime
 
