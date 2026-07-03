@@ -15,7 +15,7 @@ cp .env.example .env
 ## Layout
 
 - `Api_Helpers.py` — `OneDriveConnector` (MSAL auth + Graph API) and `DbConnector` (Postgres).
-- `upload.py` — ad-hoc push of local files to Azure Blob Storage (`python upload.py [paths...] [--dry-run]`); needs a current container SAS token in `.env`.
+- `upload.py` — ad-hoc push of local files to Azure Blob Storage; self-bootstrapping via [uv](https://docs.astral.sh/uv/) inline script metadata, so just run `./upload.py [paths...] [--dry-run]` from anywhere (no venv/pip). Needs a current container SAS token in `.env`.
 - `onedrive.ipynb`, `onedrive upload.ipynb` — original sync notebooks (`upload.py` supersedes the upload one).
 - `.env.example` — required environment variables.
 

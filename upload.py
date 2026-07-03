@@ -1,4 +1,16 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "azure-storage-blob",
+#     "psycopg[binary]",
+#     "python-dotenv",
+# ]
+# ///
 """Push local files to Azure Blob Storage (cold storage backup), ad hoc.
+
+Self-bootstrapping: run ./upload.py directly and uv creates a cached
+environment with the dependencies above; no venv or pip install needed.
 
 Converted from 'onedrive upload.ipynb'. Uses the same .env variables and the
 same Postgres blob_sync table to skip already-uploaded, unchanged files, so
@@ -7,9 +19,9 @@ it is safe to re-run any time and picks up where previous runs left off.
 A container SAS token must be current (see README for the Storage browser
 link); set AZURE_STORAGE_SAS_TOKEN in .env, then:
 
-    python upload.py                    # defaults: ~/Pictures ~/Documents
-    python upload.py ~/Videos           # push specific folders or files
-    python upload.py --dry-run          # show what would upload, no changes
+    ./upload.py                    # defaults: ~/Pictures ~/Documents
+    ./upload.py ~/Videos           # push specific folders or files
+    ./upload.py --dry-run          # show what would upload, no changes
 
 Legend while running: '.' uploaded, '-' unchanged/skipped, '/' too large.
 """
@@ -21,22 +33,49 @@ import os
 import sys
 from pathlib import Path
 
+import psycopg
 from azure.core.exceptions import ClientAuthenticationError, HttpResponseError
 from azure.storage.blob import BlobServiceClient
+from dotenv import load_dotenv
 
-from Api_Helpers import DbConnector
-
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
+# Load the project's .env regardless of where the script is run from.
+load_dotenv(Path(__file__).parent / '.env')
 
 HOME = Path.home()
 CHUNK_SIZE = 4 * 1024 * 1024
 # Same exclusions as the notebook, plus node_modules.
 SKIP_DIR_NAMES = ('NetBeans', 'actions-runner', 'node_modules')
 SKIP_PATH_PARTS = ('Documents/Games/',)
+
+PG_CONNINFO = (
+    f"host={os.environ.get('PGHOST', 'localhost')} "
+    f"port={os.environ.get('PGPORT', '5432')} "
+    f"dbname={os.environ.get('PGDATABASE', 'cid')} "
+    f"user={os.environ.get('PGUSER', 'postgres')} "
+    f"password={os.environ.get('PGPASSWORD', '')}"
+)
+
+
+def db_exists_path(value: str, modified: float) -> bool:
+    """True if blob_sync already has this path at this mtime or newer."""
+    with psycopg.connect(PG_CONNINFO) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                'SELECT 1 FROM blob_sync WHERE path = %s AND modified >= %s',
+                (value, modified),
+            )
+            return cur.fetchone() is not None
+
+
+def db_add_path(value: str, modified: float) -> None:
+    with psycopg.connect(PG_CONNINFO) as conn:
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM blob_sync WHERE path = %s', (value,))
+            cur.execute(
+                'INSERT INTO blob_sync (path, modified) VALUES (%s, %s)',
+                (value, modified),
+            )
+            conn.commit()
 
 
 def blob_name_for(filepath: Path) -> str:
@@ -99,9 +138,8 @@ def main() -> int:
     blob_service_client = BlobServiceClient(f'{account_url}/?{sas_token}')
     container_client = blob_service_client.get_container_client(container_name)
 
-    db = DbConnector()
     try:
-        db.exists_path('__connection_probe__', 0)
+        db_exists_path('__connection_probe__', 0)
     except Exception as e:
         print(f'Cannot reach Postgres (blob_sync dedup table): {e}', file=sys.stderr)
         return 1
@@ -118,7 +156,7 @@ def main() -> int:
             blob_name = blob_name_for(filepath)
             modified = filepath.stat().st_mtime
 
-            if db.exists_path(blob_name, modified):
+            if db_exists_path(blob_name, modified):
                 unchanged += 1
                 print('-', end='', flush=True)
                 continue
@@ -147,7 +185,7 @@ def main() -> int:
                 errors += 1
                 print(f'\nerror reading {filepath}: {e}', file=sys.stderr)
                 continue
-            db.add_path(blob_name, modified)
+            db_add_path(blob_name, modified)
             uploaded += 1
 
     verb = 'would upload' if args.dry_run else 'uploaded'
