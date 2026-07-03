@@ -19,3 +19,8 @@ skip_path_parts = [
 
 # File extensions to skip (lowercase, with the dot), e.g. [".iso", ".vdi"]
 skip_extensions = []
+
+# Skip folders that are git repositories with a remote configured (already
+# source controlled elsewhere). Repos with NO remote still get backed up,
+# since the working copy is their only copy.
+skip_git_repos = true

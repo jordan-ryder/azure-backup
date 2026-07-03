@@ -55,7 +55,22 @@ CONFIG_DEFAULTS = {
     'skip_dir_substrings': ['NetBeans', 'actions-runner', 'node_modules'],
     'skip_path_parts': ['Documents/Games/'],
     'skip_extensions': [],
+    'skip_git_repos': True,
 }
+
+
+def is_remote_git_repo(p: Path) -> bool:
+    """True if p is a git repo with a remote configured (so the source of
+    truth lives elsewhere). Local-only repos return False and get backed up."""
+    git = p / '.git'
+    if not git.exists():
+        return False
+    if not git.is_dir():
+        return True  # .git file: submodule/worktree, managed by a parent repo
+    try:
+        return '[remote ' in (git / 'config').read_text()
+    except OSError:
+        return False
 
 
 def load_config() -> dict:
@@ -118,6 +133,9 @@ def iter_files(root: Path, cfg: dict, extra_skips: tuple[str, ...] = ()):
                     or any(n in entry.name for n in cfg['skip_dir_substrings'])):
                 continue
             if any(part in f'{p}/' for part in cfg['skip_path_parts']):
+                continue
+            if cfg['skip_git_repos'] and is_remote_git_repo(p):
+                print(f'\n[git, skipped] {p}', end='')
                 continue
             yield from iter_files(p, cfg, extra_skips)
         elif entry.is_file(follow_symlinks=False):
