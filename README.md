@@ -15,7 +15,8 @@ cp .env.example .env
 ## Layout
 
 - `Api_Helpers.py` — `OneDriveConnector` (MSAL auth + Graph API) and `DbConnector` (Postgres).
-- `onedrive.ipynb`, `onedrive upload.ipynb` — sync notebooks.
+- `upload.py` — ad-hoc push of local files to Azure Blob Storage (`python upload.py [paths...] [--dry-run]`); needs a current container SAS token in `.env`.
+- `onedrive.ipynb`, `onedrive upload.ipynb` — original sync notebooks (`upload.py` supersedes the upload one).
 - `.env.example` — required environment variables.
 
 ## Configuration
