@@ -18,7 +18,11 @@ skip_path_parts = [
 ]
 
 # File extensions to skip (lowercase, with the dot), e.g. [".iso", ".vdi"]
-skip_extensions = []
+skip_extensions = [".wav"]
+
+# Skip files whose name ends with one of these (editor backup files like
+# "photo.png~" from Krita/GIMP/gedit)
+skip_name_suffixes = ["~"]
 
 # Skip folders that are git repositories with a remote configured (already
 # source controlled elsewhere). Repos with NO remote still get backed up,

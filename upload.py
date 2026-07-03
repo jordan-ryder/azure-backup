@@ -55,6 +55,7 @@ CONFIG_DEFAULTS = {
     'skip_dir_substrings': ['NetBeans', 'actions-runner', 'node_modules'],
     'skip_path_parts': ['Documents/Games/'],
     'skip_extensions': [],
+    'skip_name_suffixes': ['~'],
     'skip_git_repos': True,
 }
 
@@ -140,6 +141,8 @@ def iter_files(root: Path, cfg: dict, extra_skips: tuple[str, ...] = ()):
             yield from iter_files(p, cfg, extra_skips)
         elif entry.is_file(follow_symlinks=False):
             if p.suffix.lower() in cfg['skip_extensions']:
+                continue
+            if any(entry.name.endswith(s) for s in cfg['skip_name_suffixes']):
                 continue
             if any(part in str(p) for part in cfg['skip_path_parts']):
                 continue
