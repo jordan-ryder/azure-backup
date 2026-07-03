@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run --script
 # /// script
-# requires-python = ">=3.10"
+# requires-python = ">=3.11"
 # dependencies = [
 #     "azure-storage-blob",
 #     "psycopg[binary]",
@@ -15,6 +15,9 @@ environment with the dependencies above; no venv or pip install needed.
 Converted from 'onedrive upload.ipynb'. Uses the same .env variables and the
 same Postgres blob_sync table to skip already-uploaded, unchanged files, so
 it is safe to re-run any time and picks up where previous runs left off.
+
+Filters (skipped directories, extensions, size limit) are configured in
+upload.toml next to this script; --skip and --max-size-mb extend/override.
 
 A container SAS token must be current (see README for the Storage browser
 link); set AZURE_STORAGE_SAS_TOKEN in .env, then:
@@ -31,6 +34,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import tomllib
 from pathlib import Path
 
 import psycopg
@@ -43,11 +47,24 @@ load_dotenv(Path(__file__).parent / '.env')
 
 HOME = Path.home()
 CHUNK_SIZE = 4 * 1024 * 1024
-# Same exclusions as the notebook, plus node_modules (substring match).
-SKIP_DIR_SUBSTRINGS = ('NetBeans', 'actions-runner', 'node_modules')
-# Dev junk skipped by exact directory name (dot-prefixed dirs are always skipped).
-SKIP_DIR_NAMES = ('__pycache__', 'venv', 'virtualenv')
-SKIP_PATH_PARTS = ('Documents/Games/',)
+CONFIG_PATH = Path(__file__).parent / 'upload.toml'
+
+CONFIG_DEFAULTS = {
+    'max_size_mb': 800,
+    'skip_dir_names': ['__pycache__', 'venv', 'virtualenv'],
+    'skip_dir_substrings': ['NetBeans', 'actions-runner', 'node_modules'],
+    'skip_path_parts': ['Documents/Games/'],
+    'skip_extensions': [],
+}
+
+
+def load_config() -> dict:
+    cfg = dict(CONFIG_DEFAULTS)
+    if CONFIG_PATH.exists():
+        with open(CONFIG_PATH, 'rb') as f:
+            cfg.update(tomllib.load(f))
+    cfg['skip_extensions'] = [e.lower() for e in cfg['skip_extensions']]
+    return cfg
 
 PG_CONNINFO = (
     f"host={os.environ.get('PGHOST', 'localhost')} "
@@ -88,7 +105,7 @@ def blob_name_for(filepath: Path) -> str:
     return full[len(home):] if full.startswith(home + '/') else full
 
 
-def iter_files(root: Path, extra_skips: tuple[str, ...] = ()):
+def iter_files(root: Path, cfg: dict, extra_skips: tuple[str, ...] = ()):
     if root.is_file():
         yield root
         return
@@ -96,14 +113,18 @@ def iter_files(root: Path, extra_skips: tuple[str, ...] = ()):
         p = Path(entry.path)
         if entry.is_dir(follow_symlinks=False):
             if (entry.name.startswith('.')
-                    or entry.name in SKIP_DIR_NAMES
+                    or entry.name in cfg['skip_dir_names']
                     or entry.name in extra_skips
-                    or any(n in entry.name for n in SKIP_DIR_SUBSTRINGS)):
+                    or any(n in entry.name for n in cfg['skip_dir_substrings'])):
                 continue
-            if any(part in f'{p}/' for part in SKIP_PATH_PARTS):
+            if any(part in f'{p}/' for part in cfg['skip_path_parts']):
                 continue
-            yield from iter_files(p, extra_skips)
+            yield from iter_files(p, cfg, extra_skips)
         elif entry.is_file(follow_symlinks=False):
+            if p.suffix.lower() in cfg['skip_extensions']:
+                continue
+            if any(part in str(p) for part in cfg['skip_path_parts']):
+                continue
             yield p
 
 
@@ -130,13 +151,16 @@ def main() -> int:
     parser.add_argument('paths', nargs='*', type=Path,
                         default=[HOME / 'Pictures', HOME / 'Documents'],
                         help='files or folders to push (default: ~/Pictures ~/Documents)')
-    parser.add_argument('--max-size-mb', type=int, default=800,
-                        help='skip files larger than this (default: 800)')
+    parser.add_argument('--max-size-mb', type=int, default=None,
+                        help='skip files larger than this (default: from upload.toml)')
     parser.add_argument('--dry-run', action='store_true',
                         help='list what would upload without touching Azure or the DB')
     parser.add_argument('--skip', action='append', default=[], metavar='NAME',
                         help='additional directory name to skip (exact match, repeatable)')
     args = parser.parse_args()
+
+    cfg = load_config()
+    max_size_mb = args.max_size_mb if args.max_size_mb is not None else cfg['max_size_mb']
 
     container_name = os.environ['AZURE_STORAGE_CONTAINER']
     account_url = os.environ['AZURE_STORAGE_ACCOUNT_URL']
@@ -151,7 +175,7 @@ def main() -> int:
         print(f'Cannot reach Postgres (blob_sync dedup table): {e}', file=sys.stderr)
         return 1
 
-    limit = args.max_size_mb * 1024 * 1024
+    limit = max_size_mb * 1024 * 1024
     uploaded = unchanged = too_large = errors = 0
 
     for root in args.paths:
@@ -159,7 +183,7 @@ def main() -> int:
             print(f'skipping missing path: {root}', file=sys.stderr)
             continue
         print(f'\n== {root}')
-        for filepath in iter_files(root.expanduser().resolve(), tuple(args.skip)):
+        for filepath in iter_files(root.expanduser().resolve(), cfg, tuple(args.skip)):
             blob_name = blob_name_for(filepath)
             modified = filepath.stat().st_mtime
 

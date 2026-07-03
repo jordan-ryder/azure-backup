@@ -1,0 +1,21 @@
+# Filters for upload.py. CLI flags (--skip, --max-size-mb) add to / override these.
+
+# Skip files larger than this (MB)
+max_size_mb = 800
+
+# Directories skipped by exact name (dot-prefixed dirs are always skipped)
+skip_dir_names = ["__pycache__", "venv", "virtualenv"]
+
+# Directories skipped when the name contains one of these
+skip_dir_substrings = ["NetBeans", "actions-runner", "node_modules"]
+
+# Any path containing one of these fragments is skipped entirely.
+# Developing/assets is licensed store content, ~37GB and re-downloadable;
+# remove the line to start backing it up.
+skip_path_parts = [
+    "Documents/Games/",
+    "Documents/Developing/assets/",
+]
+
+# File extensions to skip (lowercase, with the dot), e.g. [".iso", ".vdi"]
+skip_extensions = []
